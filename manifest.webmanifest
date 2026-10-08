@@ -1,1 +1,25 @@
-{"background_color":"#f6f7f9","description":"Control de gastos mensuales con tope de $400","display":"standalone","icons":[{"sizes":"192x192","src":"icons/icon-192.png","type":"image/png"},{"purpose":"any maskable","sizes":"512x512","src":"icons/icon-512.png","type":"image/png"}],"lang":"es","name":"Finanzas Familiares","orientation":"portrait","scope":"./","short_name":"Finanzas","start_url":"./index.html","theme_color":"#0e9f6e"}
+{
+  "background_color": "#0a0e0c",
+  "description": "Control de gastos mensuales con tope de $400",
+  "display": "standalone",
+  "icons": [
+    {
+      "sizes": "192x192",
+      "src": "icons/icon-192.png",
+      "type": "image/png"
+    },
+    {
+      "purpose": "any maskable",
+      "sizes": "512x512",
+      "src": "icons/icon-512.png",
+      "type": "image/png"
+    }
+  ],
+  "lang": "es",
+  "name": "Finanzas Familiares",
+  "orientation": "portrait",
+  "scope": "./",
+  "short_name": "Finanzas",
+  "start_url": "./index.html",
+  "theme_color": "#0a0e0c"
+}
