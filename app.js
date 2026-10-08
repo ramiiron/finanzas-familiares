@@ -197,6 +197,42 @@ function saveForm() {
 }
 
 // ---------- Escáner de boletas (OCR en el dispositivo) ----------
+// ---------- Escáner de boletas (OCR en el dispositivo) ----------
+function withTimeout(promise, ms, tag) {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout:' + tag)), ms))
+  ]);
+}
+
+function downscaleImage(file, maxDim) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const scale = Math.min(1, maxDim / Math.max(im.width, im.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(im.width * scale));
+        canvas.height = Math.max(1, Math.round(im.height * scale));
+        canvas.getContext('2d').drawImage(im, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('img')), 'image/jpeg', 0.85);
+      } catch (e) { reject(e); }
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('img')); };
+    im.src = url;
+  });
+}
+
+const SCAN_STATUS_MSG = {
+  'loading tesseract core': 'Cargando lector…',
+  'initializing tesseract': 'Iniciando lector…',
+  'loading language traineddata': 'Descargando datos de idioma (solo primera vez)…',
+  'initializing api': 'Preparando…',
+  'recognizing text': 'Leyendo la boleta…'
+};
+
 async function scanReceipt(file) {
   const box = document.getElementById('scanBox');
   const img = document.getElementById('scanImg');
@@ -208,14 +244,23 @@ async function scanReceipt(file) {
   img.src = URL.createObjectURL(file);
   prog.style.display = 'block';
   bar.style.width = '5%';
-  msg.textContent = 'Leyendo la boleta… (la foto no sale de tu teléfono)';
+  msg.textContent = 'Preparando imagen…';
 
   try {
     if (typeof Tesseract === 'undefined') throw new Error('no-lib');
-    const worker = await Tesseract.createWorker('eng');
-    const { data } = await worker.recognize(file, {}, {
-      logger: m => { if (m.status === 'recognizing text') bar.style.width = Math.round(m.progress * 100) + '%'; }
-    });
+    const small = await downscaleImage(file, 1600);
+    msg.textContent = 'Cargando lector…';
+    const worker = await withTimeout(Tesseract.createWorker('eng', Tesseract.OEM.LSTM, {
+      logger: m => {
+        if (SCAN_STATUS_MSG[m.status]) msg.textContent = SCAN_STATUS_MSG[m.status] + ' (la foto no sale de tu teléfono)';
+        if (m.status === 'recognizing text') bar.style.width = Math.max(5, Math.round(m.progress * 100)) + '%';
+        else bar.style.width = '8%';
+      },
+      workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+      corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js',
+      langPath: 'https://tessdata.projectnaptha.com/4.0.0'
+    }), 90000, 'load');
+    const { data } = await withTimeout(worker.recognize(small), 120000, 'ocr');
     await worker.terminate();
     bar.style.width = '100%';
     const parsed = parseReceipt(data.text || '');
@@ -226,7 +271,12 @@ async function scanReceipt(file) {
       ? 'Listo — revisa los datos antes de guardar.'
       : 'No pude leer bien la boleta. Ingresa los datos a mano.';
   } catch (e) {
-    msg.textContent = 'No se pudo cargar el lector (necesita internet la primera vez). Ingresa los datos a mano.';
+    const why = String((e && e.message) || '');
+    msg.textContent = why.indexOf('no-lib') === 0
+      ? 'No se pudo cargar el lector. Revisa tu conexión e inténtalo de nuevo.'
+      : why.indexOf('timeout') === 0
+        ? 'Tardó demasiado (mala conexión o foto muy pesada). Prueba de nuevo o ingresa los datos a mano.'
+        : 'No se pudo leer la boleta. Ingresa los datos a mano.';
   }
   setTimeout(() => { prog.style.display = 'none'; }, 800);
 }
