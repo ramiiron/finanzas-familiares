@@ -160,6 +160,7 @@ function renderForm() {
       '<div class="hint" id="scanMsg"></div></div>') +
     '<label>Monto (USD)</label>' +
     '<input id="fAmount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00">' +
+    '<div id="amtChips" class="chips" style="display:none"></div>' +
     '<label>Categoría</label><select id="fCat">' + cats + '</select>' +
     '<label>Fecha</label><input id="fDate" type="date" value="' + todayISO() + '">' +
     '<label>¿Quién gastó?</label><div class="seg" id="fPerson">' +
@@ -280,6 +281,7 @@ async function scanReceipt(file) {
     if (parsed.amount) document.getElementById('fAmount').value = parsed.amount.toFixed(2);
     if (parsed.date) document.getElementById('fDate').value = parsed.date;
     if (parsed.merchant) document.getElementById('fNote').value = parsed.merchant;
+    renderAmountChips(parsed.candidates);
     msg.textContent = parsed.amount || parsed.date
       ? 'Listo — revisa los datos antes de guardar.'
       : 'No pude leer bien la boleta. Ingresa los datos a mano.';
@@ -296,20 +298,40 @@ async function scanReceipt(file) {
 
 function parseReceipt(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const out = { amount: null, date: null, merchant: null };
+  const out = { amount: null, date: null, merchant: null, candidates: [] };
 
-  // Monto: prefiere líneas con "total"; si no, el monto más grande.
-  let candidates = [];
-  lines.forEach(l => {
-    const clean = l.replace(/[$\s]/g, '');
-    const m = clean.match(/(\d{1,3}(?:,\d{3})*\.\d{2})/);
-    if (m) candidates.push({ v: parseFloat(m[1].replace(/,/g, '')), total: /total/i.test(l) });
+  // "total" con errores típicos de OCR (T0TAL, TOTL...), más sinónimos
+  const totalRe = /t[o0]t[a@]l|totl|balance|amount[\s-]*due|purchase/i;
+  const subRe = /subtotal/i;
+  const payRe = /visa|mastercard|amex|tender|\btend\b|debit|credit|cash/i;
+
+  let subtotal = 0;
+  const cands = [];
+  lines.forEach((l, idx) => {
+    const noDollar = l.replace(/\$/g, '');
+    const nums = [...noDollar.matchAll(/(\d{1,3}(?:,\d{3})+|\d+)[.,](\d{2})\b/g)];
+    if (!nums.length) return;
+    // El precio suele ir al final de la línea: toma el último número
+    const raw = nums[nums.length - 1];
+    const v = parseFloat(raw[1].replace(/,/g, '') + '.' + raw[2]);
+    if (!(v > 0) || v >= 100000) return;
+    // El subtotal sirve de referencia, no es candidato
+    if (subRe.test(l) && !totalRe.test(l)) { if (v > subtotal) subtotal = v; return; }
+    let score = 0;
+    if (totalRe.test(l)) score += 5;
+    if (payRe.test(l)) score += 2;
+    if (idx >= lines.length * 0.7) score += 2;      // el total va al final
+    if (subtotal && v >= subtotal - 0.01) score += 2;
+    if (/\d{8,}/.test(l)) score -= 1;                // líneas de items con código largo
+    cands.push({ v, score });
   });
-  candidates = candidates.filter(c => c.v > 0 && c.v < 100000);
-  if (candidates.length) {
-    const totals = candidates.filter(c => c.total);
-    out.amount = (totals.length ? totals : candidates).reduce((a, b) => (b.v > a.v ? b : a)).v;
-  }
+
+  cands.sort((a, b) => b.score - a.score || b.v - a.v);
+  const seen = new Set();
+  out.candidates = cands
+    .filter(c => { const k = c.v.toFixed(2); return seen.has(k) ? false : (seen.add(k), true); })
+    .slice(0, 3);
+  if (out.candidates.length) out.amount = out.candidates[0].v;
 
   // Fecha: MM/DD/YYYY o MM-DD-YY (formato común en EE.UU.)
   for (const l of lines) {
@@ -324,12 +346,32 @@ function parseReceipt(text) {
     }
   }
 
-  // Comercio: primeras líneas con letras (no solo números).
-  for (const l of lines.slice(0, 4)) {
+  // Comercio: primeras líneas con letras, saltando encuestas y URLs
+  const skipRe = /http|www\.|\.com|survey|feedback|thank you|gracias|welcome/i;
+  for (const l of lines.slice(0, 6)) {
+    if (skipRe.test(l)) continue;
     const letters = (l.match(/[A-Za-z]/g) || []).length;
-    if (letters >= 3 && l.length <= 40) { out.merchant = l.slice(0, 40); break; }
+    if (letters >= 3 && l.length <= 32) { out.merchant = l.slice(0, 32); break; }
   }
   return out;
+}
+
+function renderAmountChips(candidates) {
+  const box = document.getElementById('amtChips');
+  if (!box) return;
+  if (!candidates || candidates.length < 2) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'flex';
+  box.innerHTML = '<span class="hint" style="margin:0;align-self:center">¿Otro monto?</span>' +
+    candidates.map(c =>
+      '<button type="button" data-amt="' + c.v.toFixed(2) + '">' + fmt(c.v) + '</button>').join('');
+  box.querySelectorAll('button').forEach(b => {
+    b.onclick = () => {
+      document.getElementById('fAmount').value = b.getAttribute('data-amt');
+      box.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    };
+  });
+  const first = box.querySelector('button');
+  if (first) first.classList.add('on');
 }
 
 // ---------- Historial ----------
