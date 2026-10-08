@@ -2,7 +2,7 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '3.5';
+const APP_VERSION = '3.6';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#2dd4bf', '#f472b6', '#9ca3af'];
 const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">';
@@ -715,6 +715,7 @@ async function checkForUpdate() {
     if (!r.ok) return;
     const j = await r.json();
     if (!j.v || j.v === APP_VERSION || document.getElementById('updBtn')) return;
+    const target = j.v;
     const b = document.createElement('button');
     b.id = 'updBtn';
     b.textContent = '↓ Hay una versión nueva — toca para actualizar';
@@ -729,7 +730,8 @@ async function checkForUpdate() {
           const files = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest'];
           await Promise.all(files.map(async f => {
             try {
-              const rr = await fetch(f, { cache: 'no-store' });
+              // ?v= hace que el CDN lo vea como URL nueva: siempre sirve el archivo fresco
+              const rr = await fetch(f + '?v=' + target, { cache: 'no-store' });
               if (rr.ok) await c.put(f, rr);
             } catch (e) {}
           }));
