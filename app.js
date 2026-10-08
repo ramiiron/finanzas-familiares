@@ -2,12 +2,21 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '2.1';
+const APP_VERSION = '3.0';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
-const CAT_COLORS = ['#0e9f6e', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#6b7280'];
-const CAT_ICONS = { 'Comida': '🍽️', 'Transporte': '🚗', 'Casa': '🏠', 'Salud': '💊', 'Suscripciones': '🔁', 'Compras': '🛍️', 'Niños': '🧒', 'Otros': '📦' };
-const PEOPLE = ['Ramiro', 'Nicole'];
-const PEOPLE_COLORS = { 'Ramiro': '#0e9f6e', 'Nicole': '#8b5cf6' };
+const CAT_COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#2dd4bf', '#f472b6', '#9ca3af'];
+const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">';
+const CAT_SVG = {
+  'Comida': '<path d="M4 2v7c0 1.1.9 2 2 2h2a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M20 15V2a4 4 0 0 0-4 4v6a2 2 0 0 0 2 2h2zm0 0v7"/>',
+  'Transporte': '<path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11"/><path d="M4 11h16a1 1 0 0 1 1 1v5h-2"/><path d="M3 12v5h2"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/><path d="M9.3 17.5h5.4"/>',
+  'Casa': '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"/><path d="M10 20v-6h4v6"/>',
+  'Salud': '<path d="M19.5 12.6 12 20l-7.5-7.4A5 5 0 1 1 12 6.3a5 5 0 1 1 7.5 6.3z"/><path d="M7 12h3l1.5-3 3 6L16 12h3"/>',
+  'Suscripciones': '<path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+  'Compras': '<path d="M6 8h15l-1.2 11a1 1 0 0 1-1 .9H5.2a1 1 0 0 1-1-.9L3 8h3z"/><path d="M9 11V6a3 3 0 0 1 6 0v5"/>',
+  'Niños': '<circle cx="12" cy="12" r="9"/><path d="M8.5 14a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>',
+  'Otros': '<path d="M20.6 13.4 12.2 5a2 2 0 0 0-1.4-.6H4a1 1 0 0 0-1 1v6.8c0 .5.2 1 .6 1.4l8.4 8.4a2 2 0 0 0 2.8 0l5.8-5.8a2 2 0 0 0 0-2.8z"/><path d="M7.5 7.5h.01"/>'
+};
+const PEOPLE_COLORS = { 'Ramiro': '#34d399', 'Nicole': '#a78bfa' };
 
 // ---------- Nube (Firebase) ----------
 const FIREBASE_CONFIG = {
@@ -151,7 +160,11 @@ function catColor(cat) {
   const i = state.cats.indexOf(cat);
   return CAT_COLORS[(i < 0 ? 7 : i) % CAT_COLORS.length];
 }
-function catIcon(cat) { return CAT_ICONS[cat] || '📦'; }
+function catIcon(cat) {
+  const p = CAT_SVG[cat];
+  if (p) return SVG_OPEN + p + '</svg>';
+  return SVG_OPEN + '<path d="M20.6 13.4 12.2 5a2 2 0 0 0-1.4-.6H4a1 1 0 0 0-1 1v6.8c0 .5.2 1 .6 1.4l8.4 8.4a2 2 0 0 0 2.8 0l5.8-5.8a2 2 0 0 0 0-2.8z"/><path d="M7.5 7.5h.01"/>' + '</svg>';
+}
 
 // ---------- Dashboard ----------
 function monthTxs() {
@@ -164,9 +177,9 @@ function renderDashboard() {
   const pct = cap > 0 ? Math.min(100, (total / cap) * 100) : 0;
   const left = cap - total;
 
-  let ringColor = '#0e9f6e', pill = 'ok', status = '';
-  if (total > cap) { ringColor = '#e02424'; pill = 'over'; status = 'Te pasaste por ' + fmt(total - cap); }
-  else if (cap > 0 && total / cap >= 0.8) { ringColor = '#d97706'; pill = 'warn'; status = 'Quedan ' + fmt(left) + ' · cuidado'; }
+  let ringColor = '#34d399', pill = 'ok', status = '';
+  if (total > cap) { ringColor = '#f87171'; pill = 'over'; status = 'Te pasaste por ' + fmt(total - cap); }
+  else if (cap > 0 && total / cap >= 0.8) { ringColor = '#fbbf24'; pill = 'warn'; status = 'Quedan ' + fmt(left) + ' · cuidado'; }
   else { status = 'Te quedan ' + fmt(left) + ' este mes'; }
 
   const R = 54, CIRC = 2 * Math.PI * R;
@@ -189,7 +202,8 @@ function renderDashboard() {
   if (!cats.length) html += '<div class="empty">Sin gastos este mes.</div>';
   const maxCat = cats.length ? cats[0][1] : 1;
   cats.forEach(([c, v]) => {
-    html += '<div class="catrow"><div class="cico">' + catIcon(c) + '</div>' +
+    const cc = catColor(c);
+    html += '<div class="catrow"><div class="cico" style="color:' + cc + ';background:' + cc + '1c">' + catIcon(c) + '</div>' +
       '<div class="cinfo"><div class="cname">' + esc(c) + '</div>' +
       '<div class="cbar"><div style="width:' + (v / maxCat * 100).toFixed(1) + '%;background:' + catColor(c) + '"></div></div></div>' +
       '<div class="camt">' + fmt(v) + '</div></div>';
@@ -224,7 +238,8 @@ function renderDashboard() {
 }
 
 function txRow(t) {
-  return '<div class="tx"><div class="cico" style="width:38px;height:38px;font-size:17px">' + catIcon(t.cat) + '</div>' +
+  const cc = catColor(t.cat);
+  return '<div class="tx"><div class="cico" style="width:38px;height:38px;color:' + cc + ';background:' + cc + '1c">' + catIcon(t.cat) + '</div>' +
     '<div class="tinfo"><div class="tnote">' + esc(t.note || t.cat) + '</div>' +
     '<div class="tmeta">' + esc(t.date || '') + ' · ' + esc(t.cat || '') + ' · ' + esc(t.person || '') + '</div></div>' +
     '<div class="tamt">' + fmt(t.amount) + '</div>' +
@@ -569,11 +584,12 @@ function renderSettings() {
     '<button class="btn" id="sSaveCap">Guardar tope</button></div>' +
 
     '<div class="card"><h2>Categorías</h2><div id="catList">' +
-    state.cats.map((c, i) =>
-      '<div class="tx"><div class="cico" style="width:38px;height:38px;font-size:17px">' + catIcon(c) + '</div>' +
+    state.cats.map((c, i) => {
+      const cc = catColor(c);
+      return '<div class="tx"><div class="cico" style="width:38px;height:38px;color:' + cc + ';background:' + cc + '1c">' + catIcon(c) + '</div>' +
       '<div class="tinfo"><div class="tnote">' + esc(c) + '</div></div>' +
       (state.cats.length > 1 ? '<button class="tdel" data-cat="' + i + '" aria-label="Eliminar categoría">×</button>' : '') +
-      '</div>').join('') +
+      '</div>'; }).join('') +
     '</div><label>Nueva categoría</label><input id="sNewCat" type="text" maxlength="30" placeholder="Ej: Mascotas">' +
     '<button class="btn" id="sAddCat">Agregar categoría</button></div>' +
 
