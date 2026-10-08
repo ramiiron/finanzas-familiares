@@ -2,7 +2,7 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.5';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#0e9f6e', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#6b7280'];
 const CAT_ICONS = { 'Comida': '🍽️', 'Transporte': '🚗', 'Casa': '🏠', 'Salud': '💊', 'Suscripciones': '🔁', 'Compras': '🛍️', 'Niños': '🧒', 'Otros': '📦' };
@@ -157,7 +157,9 @@ function renderForm() {
       '<div id="scanBox" style="display:none;margin-top:10px">' +
       '<img id="scanImg" style="width:100%;border-radius:10px;display:none">' +
       '<div class="progress" id="scanProg" style="display:none"><div style="width:0%"></div></div>' +
-      '<div class="hint" id="scanMsg"></div></div>') +
+      '<div class="hint" id="scanMsg"></div>' +
+      '<details id="ocrDebug" style="display:none;margin-top:8px"><summary class="hint" style="cursor:pointer">Ver texto detectado</summary>' +
+      '<pre id="ocrText" style="white-space:pre-wrap;font-size:11px;background:#f3f6f5;border-radius:10px;padding:10px;max-height:180px;overflow:auto"></pre></details></div>') +
     '<label>Monto (USD)</label>' +
     '<input id="fAmount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00">' +
     '<div id="amtChips" class="chips" style="display:none"></div>' +
@@ -277,7 +279,11 @@ async function scanReceipt(file) {
     const { data } = await withTimeout(worker.recognize(small), 120000, 'ocr');
     await worker.terminate();
     bar.style.width = '100%';
-    const parsed = parseReceipt(data.text || '');
+    const ocrText = data.text || '';
+    const dbg = document.getElementById('ocrDebug');
+    const dbgPre = document.getElementById('ocrText');
+    if (dbg && dbgPre) { dbg.style.display = 'block'; dbgPre.textContent = ocrText.trim() || '(no se detectó texto)'; }
+    const parsed = parseReceipt(ocrText);
     if (parsed.amount) document.getElementById('fAmount').value = parsed.amount.toFixed(2);
     if (parsed.date) document.getElementById('fDate').value = parsed.date;
     if (parsed.merchant) document.getElementById('fNote').value = parsed.merchant;
