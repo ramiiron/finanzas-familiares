@@ -2,7 +2,7 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '1.9';
+const APP_VERSION = '2.0';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#0e9f6e', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#6b7280'];
 const CAT_ICONS = { 'Comida': '🍽️', 'Transporte': '🚗', 'Casa': '🏠', 'Salud': '💊', 'Suscripciones': '🔁', 'Compras': '🛍️', 'Niños': '🧒', 'Otros': '📦' };
@@ -10,8 +10,14 @@ const PEOPLE = ['Ramiro', 'Nicole'];
 const PEOPLE_COLORS = { 'Ramiro': '#0e9f6e', 'Nicole': '#8b5cf6' };
 
 // ---------- Nube (Firebase) ----------
-// Ramiro pega aquí el firebaseConfig de su proyecto. Con null la app trabaja en modo local.
-const FIREBASE_CONFIG = null;
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBa4XTJo47f3ZutCwIabO89SNTopQqTljc",
+  authDomain: "finanzas-bugueno.firebaseapp.com",
+  projectId: "finanzas-bugueno",
+  storageBucket: "finanzas-bugueno.firebasestorage.app",
+  messagingSenderId: "745240953305",
+  appId: "1:745240953305:web:37595a80c087fef80799c8"
+};
 let db = null, cloudOn = false;
 let currentView = 'dash';
 
