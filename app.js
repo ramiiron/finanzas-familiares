@@ -365,12 +365,14 @@ function parseReceipt(text) {
     }
   }
 
-  // Comercio: primeras líneas con letras, saltando encuestas y URLs
+  // Comercio: primeras líneas, solo si parece un nombre real de tienda
+  // (hasta 3 palabras, cada una Title o MAYÚSCULAS). Si no está claro, no se rellena.
   const skipRe = /http|www\.|\.com|survey|feedback|thank you|gracias|welcome/i;
+  const nameRe = /^([A-Z][a-z]*|[A-Z]{2,})( ([A-Z][a-z]*|[A-Z]{2,})){0,2}$/;
   for (const l of lines.slice(0, 6)) {
     if (skipRe.test(l)) continue;
-    const letters = (l.match(/[A-Za-z]/g) || []).length;
-    if (letters >= 3 && l.length <= 32) { out.merchant = l.slice(0, 32); break; }
+    const t = l.slice(0, 30).trim();
+    if (t.length >= 3 && nameRe.test(t)) { out.merchant = t; break; }
   }
   return out;
 }
