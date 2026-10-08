@@ -216,6 +216,15 @@ nav button.on::before{
   box-shadow:0 0 12px var(--accent);
 }
 
+/* ---------- Update pill ---------- */
+#updBtn{
+  position:fixed;top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+  z-index:99;background:var(--accent);color:var(--accent-ink);
+  border:none;border-radius:999px;padding:11px 20px;font-weight:800;font-size:13.5px;
+  box-shadow:var(--glow);cursor:pointer;font-family:inherit;white-space:nowrap;
+  animation:fadein .3s ease;max-width:92vw;
+}
+
 /* ---------- Views ---------- */
 .view{display:none;}
 .view.on{display:block;animation:fadein .25s ease;}
