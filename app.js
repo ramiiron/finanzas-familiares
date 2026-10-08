@@ -2,7 +2,7 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '3.1';
+const APP_VERSION = '3.2';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#2dd4bf', '#f472b6', '#9ca3af'];
 const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">';
@@ -27,7 +27,7 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "745240953305",
   appId: "1:745240953305:web:37595a80c087fef80799c8"
 };
-let db = null, cloudOn = false;
+let db = null, cloudOn = false, cloudErr = '';
 let currentView = 'dash';
 
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
@@ -86,6 +86,8 @@ async function initCloud() {
     }
     cloudOn = true;
     await migrateLocalToCloud();
+    if (currentView === 'set') renderSettings();
+    if (currentView === 'dash') renderDashboard();
     db.collection('gastos').onSnapshot(snap => {
       const arr = [];
       snap.forEach(d => { const x = d.data(); x.id = d.id; arr.push(x); });
@@ -102,7 +104,11 @@ async function initCloud() {
         if (currentView === 'hist') renderHistory();
       }
     });
-  } catch (e) { cloudOn = false; db = null; }
+  } catch (e) {
+    cloudOn = false; db = null;
+    cloudErr = (e && e.message) ? String(e.message).slice(0, 140) : 'error desconocido';
+    if (currentView === 'set') renderSettings();
+  }
 }
 
 async function migrateLocalToCloud() {
@@ -567,6 +573,8 @@ function renderSettings() {
     (cloudOn
       ? '☁️ <b>Nube activada.</b> Lo que anoten tú o Nicole aparece en ambos teléfonos.'
       : '📱 <b>Modo local.</b> Los datos viven solo en este teléfono.') +
+    ((!cloudOn && cloudErr && FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey)
+      ? '<br><span style="color:var(--red)">No se pudo conectar: ' + esc(cloudErr) + '</span>' : '') +
     '</div></div>' +
 
     '<div class="card"><h2>Lector de boletas</h2>' +
