@@ -2,23 +2,112 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.9';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#0e9f6e', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#6b7280'];
 const CAT_ICONS = { 'Comida': '🍽️', 'Transporte': '🚗', 'Casa': '🏠', 'Salud': '💊', 'Suscripciones': '🔁', 'Compras': '🛍️', 'Niños': '🧒', 'Otros': '📦' };
 const PEOPLE = ['Ramiro', 'Nicole'];
 const PEOPLE_COLORS = { 'Ramiro': '#0e9f6e', 'Nicole': '#8b5cf6' };
 
+// ---------- Nube (Firebase) ----------
+// Ramiro pega aquí el firebaseConfig de su proyecto. Con null la app trabaja en modo local.
+const FIREBASE_CONFIG = null;
+let db = null, cloudOn = false;
+let currentView = 'dash';
+
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
 function load() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) return Object.assign({ cap: 400, cats: DEFAULT_CATS.slice(), txs: [], ocrKey: '' }, JSON.parse(raw));
   } catch (e) {}
   return { cap: 400, cats: DEFAULT_CATS.slice(), txs: [], ocrKey: '' };
 }
-function save() { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+function persistLocal() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {}
+}
+// save() histórico = guardado local (clave OCR y modo sin nube)
+function save() { persistLocal(); }
+
+// ---------- Operaciones de datos (nube o local) ----------
+async function addTx(tx) {
+  if (cloudOn && db) { try { await db.collection('gastos').doc(tx.id).set(tx); return; } catch (e) {} }
+  state.txs.push(tx); persistLocal(); renderAll();
+}
+async function removeTx(id) {
+  if (cloudOn && db) { try { await db.collection('gastos').doc(id).delete(); return; } catch (e) {} }
+  state.txs = state.txs.filter(t => t.id !== id); persistLocal(); renderAll();
+}
+async function setCap(v) {
+  state.cap = v;
+  if (cloudOn && db) { try { await db.collection('config').doc('app').set({ cap: v }, { merge: true }); } catch (e) {} }
+  else persistLocal();
+  renderAll();
+}
+async function addCat(name) {
+  if (!name || state.cats.includes(name)) return false;
+  state.cats.push(name);
+  if (cloudOn && db) { try { await db.collection('config').doc('app').set({ cats: state.cats }, { merge: true }); } catch (e) {} }
+  else persistLocal();
+  return true;
+}
+async function removeCatAt(i) {
+  state.cats.splice(i, 1);
+  if (cloudOn && db) { try { await db.collection('config').doc('app').set({ cats: state.cats }, { merge: true }); } catch (e) {} }
+  else persistLocal();
+}
+
+async function initCloud() {
+  try {
+    if (!FIREBASE_CONFIG || !FIREBASE_CONFIG.apiKey) return;
+    if (typeof firebase === 'undefined') return;
+    if (firebase.apps && firebase.apps.length) { db = firebase.firestore(); }
+    else {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      await firebase.auth().signInAnonymously();
+      db = firebase.firestore();
+      try { await db.enablePersistence({ synchronizeTabs: true }); } catch (e) {}
+    }
+    cloudOn = true;
+    await migrateLocalToCloud();
+    db.collection('gastos').onSnapshot(snap => {
+      const arr = [];
+      snap.forEach(d => { const x = d.data(); x.id = d.id; arr.push(x); });
+      state.txs = arr;
+      renderAll();
+      if (currentView === 'hist') renderHistory();
+    });
+    db.collection('config').doc('app').onSnapshot(doc => {
+      if (doc.exists) {
+        const c = doc.data() || {};
+        if (typeof c.cap === 'number' && c.cap > 0) state.cap = c.cap;
+        if (Array.isArray(c.cats) && c.cats.length) state.cats = c.cats;
+        renderAll();
+        if (currentView === 'hist') renderHistory();
+      }
+    });
+  } catch (e) { cloudOn = false; db = null; }
+}
+
+async function migrateLocalToCloud() {
+  try {
+    if (localStorage.getItem('finanzas-migrated') === '1') return;
+    const snap = await db.collection('gastos').limit(1).get();
+    const cfg = await db.collection('config').doc('app').get();
+    const batch = db.batch();
+    let n = 0;
+    if (snap.empty && state.txs.length) {
+      state.txs.forEach(t => { batch.set(db.collection('gastos').doc(t.id), t); n++; });
+    }
+    if (!cfg.exists) {
+      batch.set(db.collection('config').doc('app'), { cap: state.cap, cats: state.cats });
+      n++;
+    }
+    if (n) await batch.commit();
+    localStorage.setItem('finanzas-migrated', '1');
+  } catch (e) {}
+}
 
 let state = load();
 // vista: mes en formato YYYY-MM
@@ -138,10 +227,7 @@ function txRow(t) {
 function bindDeleteButtons(root) {
   root.querySelectorAll('[data-del]').forEach(b => {
     b.onclick = () => {
-      if (confirm('¿Eliminar este gasto?')) {
-        state.txs = state.txs.filter(t => t.id !== b.getAttribute('data-del'));
-        save(); renderAll();
-      }
+      if (confirm('¿Eliminar este gasto?')) removeTx(b.getAttribute('data-del'));
     };
   });
 }
@@ -198,12 +284,15 @@ function saveForm() {
   const note = document.getElementById('fNote').value.trim();
   if (editId) {
     const t = state.txs.find(x => x.id === editId);
-    if (t) { t.amount = amount; t.cat = cat; t.date = date; t.note = note; t.person = formPerson; }
+    if (t) {
+      t.amount = amount; t.cat = cat; t.date = date; t.note = note; t.person = formPerson;
+      if (cloudOn && db) { db.collection('gastos').doc(t.id).set(t).catch(() => {}); }
+      else persistLocal();
+    }
     editId = null;
   } else {
-    state.txs.push({ id: uid(), amount: Math.round(amount * 100) / 100, cat, date, note, person: formPerson, ts: Date.now() });
+    addTx({ id: uid(), amount: Math.round(amount * 100) / 100, cat, date, note, person: formPerson, ts: Date.now() });
   }
-  save();
   viewMonth = date.slice(0, 7);
   renderForm();
   showView('dash');
@@ -452,6 +541,13 @@ function renderHistory() {
 function renderSettings() {
   const el = document.getElementById('set');
   el.innerHTML =
+    '<div class="card"><h2>Sincronización</h2>' +
+    '<div class="hint" style="margin-top:0">' +
+    (cloudOn
+      ? '☁️ <b>Nube activada.</b> Lo que anoten tú o Nicole aparece en ambos teléfonos.'
+      : '📱 <b>Modo local.</b> Los datos viven solo en este teléfono.') +
+    '</div></div>' +
+
     '<div class="card"><h2>Lector de boletas</h2>' +
     '<div class="hint" style="margin-top:0">El lector en la nube lee mucho mejor. ' +
     'Consigue tu clave gratis en <a href="https://ocr.space/ocrapi" target="_blank" rel="noopener">ocr.space/ocrapi</a> ' +
@@ -484,8 +580,8 @@ function renderSettings() {
   document.getElementById('sSaveCap').onclick = () => {
     const v = parseFloat(document.getElementById('sCap').value);
     if (!(v > 0)) { alert('Ingresa un tope válido.'); return; }
-    state.cap = Math.round(v * 100) / 100; save(); renderAll();
-    alert('Tope actualizado a ' + fmt(state.cap) + '.');
+    setCap(Math.round(v * 100) / 100);
+    alert('Tope actualizado a ' + fmt(Math.round(v * 100) / 100) + '.');
   };
   const ocrState = document.getElementById('ocrState');
   const paintOcrState = () => {
@@ -499,18 +595,18 @@ function renderSettings() {
     save(); paintOcrState();
     alert(state.ocrKey ? 'Clave guardada. El escáner ahora usa la nube.' : 'Clave eliminada. Se usará el lector del teléfono.');
   };
-  document.getElementById('sAddCat').onclick = () => {
+  document.getElementById('sAddCat').onclick = async () => {
     const v = document.getElementById('sNewCat').value.trim();
     if (!v) return;
     if (state.cats.includes(v)) { alert('Esa categoría ya existe.'); return; }
-    state.cats.push(v); save(); renderSettings();
+    await addCat(v); renderSettings();
   };
   el.querySelectorAll('[data-cat]').forEach(b => {
     b.onclick = () => {
       const i = Number(b.getAttribute('data-cat'));
       const name = state.cats[i];
       if (state.txs.some(t => t.cat === name)) { alert('No se puede eliminar: hay gastos con esa categoría.'); return; }
-      if (confirm('¿Eliminar la categoría "' + name + '"?')) { state.cats.splice(i, 1); save(); renderSettings(); }
+      if (confirm('¿Eliminar la categoría "' + name + '"?')) { removeCatAt(i).then(() => renderSettings()); }
     };
   });
   document.getElementById('sExport').onclick = () => {
@@ -521,17 +617,28 @@ function renderSettings() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   };
-  document.getElementById('sWipe').onclick = () => {
+  document.getElementById('sWipe').onclick = async () => {
     if (confirm('¿Borrar TODOS los datos? Esto no se puede deshacer.') &&
         confirm('¿Seguro? Se perderán todos los gastos registrados.')) {
-      state = { cap: 400, cats: DEFAULT_CATS.slice(), txs: [] };
-      save(); renderAll();
+      const keepKey = state.ocrKey;
+      if (cloudOn && db) {
+        try {
+          const snap = await db.collection('gastos').get();
+          const batch = db.batch();
+          snap.forEach(d => batch.delete(d.ref));
+          batch.set(db.collection('config').doc('app'), { cap: 400, cats: DEFAULT_CATS.slice() });
+          await batch.commit();
+        } catch (e) {}
+      }
+      state = { cap: 400, cats: DEFAULT_CATS.slice(), txs: [], ocrKey: keepKey };
+      persistLocal(); renderAll();
     }
   };
 }
 
 // ---------- Navegación ----------
 function showView(name) {
+  currentView = name;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('on'));
   document.getElementById(name === 'dash' ? 'vdash' : name === 'form' ? 'vform' : name === 'hist' ? 'vhist' : 'vset').classList.add('on');
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.getAttribute('data-v') === name));
@@ -566,3 +673,4 @@ if ('serviceWorker' in navigator) {
 
 renderForm();
 showView('dash');
+initCloud();
