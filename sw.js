@@ -1,4 +1,4 @@
-const CACHE = 'finanzas-pwa-v16';
+const CACHE = 'finanzas-pwa-v17';
 const CDN_CACHE = 'finanzas-pwa-cdn';
 const FILES = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png'];
