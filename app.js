@@ -138,6 +138,13 @@ function renderForm() {
   const cats = state.cats.map(c => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('');
   document.getElementById('form').innerHTML =
     '<div class="card"><h2>' + (editId ? 'Editar gasto' : 'Nuevo gasto') + '</h2>' +
+    (editId ? '' :
+      '<button class="btn ghost" id="fScan" style="margin-top:0">📷 Escanear boleta</button>' +
+      '<input id="fFile" type="file" accept="image/*" capture="environment" style="display:none">' +
+      '<div id="scanBox" style="display:none;margin-top:10px">' +
+      '<img id="scanImg" style="width:100%;border-radius:10px;display:none">' +
+      '<div class="progress" id="scanProg" style="display:none"><div style="width:0%"></div></div>' +
+      '<div class="hint" id="scanMsg"></div></div>') +
     '<label>Monto (USD)</label>' +
     '<input id="fAmount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00">' +
     '<label>Categoría</label><select id="fCat">' + cats + '</select>' +
@@ -159,6 +166,12 @@ function renderForm() {
   document.getElementById('fSave').onclick = saveForm;
   const c = document.getElementById('fCancel');
   if (c) c.onclick = () => { editId = null; renderForm(); };
+  const scanBtn = document.getElementById('fScan');
+  if (scanBtn) {
+    const fileInput = document.getElementById('fFile');
+    scanBtn.onclick = () => fileInput.click();
+    fileInput.onchange = () => { if (fileInput.files[0]) scanReceipt(fileInput.files[0]); };
+  }
 }
 
 function saveForm() {
@@ -181,6 +194,79 @@ function saveForm() {
   const txs = monthTxs();
   const total = txs.reduce((s, t) => s + Number(t.amount || 0), 0);
   if (total > Number(state.cap)) alert('Ojo: con este gasto superas el tope de ' + fmt(state.cap) + '.');
+}
+
+// ---------- Escáner de boletas (OCR en el dispositivo) ----------
+async function scanReceipt(file) {
+  const box = document.getElementById('scanBox');
+  const img = document.getElementById('scanImg');
+  const prog = document.getElementById('scanProg');
+  const msg = document.getElementById('scanMsg');
+  const bar = prog.querySelector('div');
+  box.style.display = 'block';
+  img.style.display = 'block';
+  img.src = URL.createObjectURL(file);
+  prog.style.display = 'block';
+  bar.style.width = '5%';
+  msg.textContent = 'Leyendo la boleta… (la foto no sale de tu teléfono)';
+
+  try {
+    if (typeof Tesseract === 'undefined') throw new Error('no-lib');
+    const worker = await Tesseract.createWorker('eng');
+    const { data } = await worker.recognize(file, {}, {
+      logger: m => { if (m.status === 'recognizing text') bar.style.width = Math.round(m.progress * 100) + '%'; }
+    });
+    await worker.terminate();
+    bar.style.width = '100%';
+    const parsed = parseReceipt(data.text || '');
+    if (parsed.amount) document.getElementById('fAmount').value = parsed.amount.toFixed(2);
+    if (parsed.date) document.getElementById('fDate').value = parsed.date;
+    if (parsed.merchant) document.getElementById('fNote').value = parsed.merchant;
+    msg.textContent = parsed.amount || parsed.date
+      ? 'Listo — revisa los datos antes de guardar.'
+      : 'No pude leer bien la boleta. Ingresa los datos a mano.';
+  } catch (e) {
+    msg.textContent = 'No se pudo cargar el lector (necesita internet la primera vez). Ingresa los datos a mano.';
+  }
+  setTimeout(() => { prog.style.display = 'none'; }, 800);
+}
+
+function parseReceipt(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const out = { amount: null, date: null, merchant: null };
+
+  // Monto: prefiere líneas con "total"; si no, el monto más grande.
+  let candidates = [];
+  lines.forEach(l => {
+    const clean = l.replace(/[$\s]/g, '');
+    const m = clean.match(/(\d{1,3}(?:,\d{3})*\.\d{2})/);
+    if (m) candidates.push({ v: parseFloat(m[1].replace(/,/g, '')), total: /total/i.test(l) });
+  });
+  candidates = candidates.filter(c => c.v > 0 && c.v < 100000);
+  if (candidates.length) {
+    const totals = candidates.filter(c => c.total);
+    out.amount = (totals.length ? totals : candidates).reduce((a, b) => (b.v > a.v ? b : a)).v;
+  }
+
+  // Fecha: MM/DD/YYYY o MM-DD-YY (formato común en EE.UU.)
+  for (const l of lines) {
+    const m = l.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/);
+    if (m) {
+      let [, mo, da, ye] = m;
+      if (ye.length === 2) ye = '20' + ye;
+      if (Number(mo) <= 12 && Number(da) <= 31) {
+        out.date = ye + '-' + mo.padStart(2, '0') + '-' + da.padStart(2, '0');
+        break;
+      }
+    }
+  }
+
+  // Comercio: primeras líneas con letras (no solo números).
+  for (const l of lines.slice(0, 4)) {
+    const letters = (l.match(/[A-Za-z]/g) || []).length;
+    if (letters >= 3 && l.length <= 40) { out.merchant = l.slice(0, 40); break; }
+  }
+  return out;
 }
 
 // ---------- Historial ----------
