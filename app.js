@@ -2,7 +2,7 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#0e9f6e', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#6b7280'];
 const CAT_ICONS = { 'Comida': '🍽️', 'Transporte': '🚗', 'Casa': '🏠', 'Salud': '💊', 'Suscripciones': '🔁', 'Compras': '🛍️', 'Niños': '🧒', 'Otros': '📦' };
