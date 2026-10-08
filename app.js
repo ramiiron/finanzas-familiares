@@ -2,7 +2,7 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.6';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#0e9f6e', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#6b7280'];
 const CAT_ICONS = { 'Comida': '🍽️', 'Transporte': '🚗', 'Casa': '🏠', 'Salud': '💊', 'Suscripciones': '🔁', 'Compras': '🛍️', 'Niños': '🧒', 'Otros': '📦' };
@@ -221,7 +221,7 @@ function withTimeout(promise, ms, tag) {
   ]);
 }
 
-function downscaleImage(file, maxDim) {
+function preprocessImage(file, maxDim) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const im = new Image();
@@ -231,15 +231,28 @@ function downscaleImage(file, maxDim) {
         const canvas = document.createElement('canvas');
         canvas.width = Math.max(1, Math.round(im.width * scale));
         canvas.height = Math.max(1, Math.round(im.height * scale));
-        canvas.getContext('2d').drawImage(im, 0, 0, canvas.width, canvas.height);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(im, 0, 0, canvas.width, canvas.height);
         URL.revokeObjectURL(url);
-        canvas.toBlob(b => b ? resolve(b) : reject(new Error('img')), 'image/jpeg', 0.85);
+        // Quita el resaltador amarillo: píxeles amarillos -> blanco.
+        // El marcador amarillo sobre el TOTAL ciega al OCR.
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = imgData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], g = d[i + 1], b = d[i + 2];
+          if (r > 140 && g > 140 && b < 130) { d[i] = 255; d[i + 1] = 255; d[i + 2] = 255; }
+        }
+        ctx.putImageData(imgData, 0, 0);
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('img')), 'image/jpeg', 0.92);
       } catch (e) { reject(e); }
     };
     im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('img')); };
     im.src = url;
   });
 }
+
+// Compat: mantiene el nombre anterior
+function downscaleImage(file, maxDim) { return preprocessImage(file, maxDim); }
 
 const SCAN_STATUS_MSG = {
   'loading tesseract core': 'Cargando lector…',
@@ -264,7 +277,7 @@ async function scanReceipt(file) {
 
   try {
     if (typeof Tesseract === 'undefined') throw new Error('no-lib');
-    const small = await downscaleImage(file, 1600);
+    const small = await downscaleImage(file, 2200);
     msg.textContent = 'Cargando lector…';
     const worker = await withTimeout(Tesseract.createWorker('eng', Tesseract.OEM.LSTM, {
       logger: m => {
