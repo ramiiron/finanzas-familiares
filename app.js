@@ -2,7 +2,7 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '3.2';
+const APP_VERSION = '3.3';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#2dd4bf', '#f472b6', '#9ca3af'];
 const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">';
@@ -16,6 +16,7 @@ const CAT_SVG = {
   'Niños': '<circle cx="12" cy="12" r="9"/><path d="M8.5 14a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>',
   'Otros': '<path d="M20.6 13.4 12.2 5a2 2 0 0 0-1.4-.6H4a1 1 0 0 0-1 1v6.8c0 .5.2 1 .6 1.4l8.4 8.4a2 2 0 0 0 2.8 0l5.8-5.8a2 2 0 0 0 0-2.8z"/><path d="M7.5 7.5h.01"/>'
 };
+const PEOPLE = ['Ramiro', 'Nicole'];
 const PEOPLE_COLORS = { 'Ramiro': '#34d399', 'Nicole': '#a78bfa' };
 
 // ---------- Nube (Firebase) ----------
