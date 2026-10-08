@@ -2,7 +2,7 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#0e9f6e', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#6b7280'];
 const CAT_ICONS = { 'Comida': '🍽️', 'Transporte': '🚗', 'Casa': '🏠', 'Salud': '💊', 'Suscripciones': '🔁', 'Compras': '🛍️', 'Niños': '🧒', 'Otros': '📦' };
@@ -16,7 +16,7 @@ function load() {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) return JSON.parse(raw);
   } catch (e) {}
-  return { cap: 400, cats: DEFAULT_CATS.slice(), txs: [] };
+  return { cap: 400, cats: DEFAULT_CATS.slice(), txs: [], ocrKey: '' };
 }
 function save() { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
 
@@ -262,6 +262,34 @@ const SCAN_STATUS_MSG = {
   'recognizing text': 'Leyendo la boleta…'
 };
 
+async function localOcr(imageBlob, onStatus) {
+  const worker = await withTimeout(Tesseract.createWorker('eng', Tesseract.OEM.LSTM, {
+    logger: onStatus,
+    workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+    corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js',
+    langPath: 'https://tessdata.projectnaptha.com/4.0.0'
+  }), 90000, 'load');
+  const { data } = await withTimeout(worker.recognize(imageBlob), 120000, 'ocr');
+  await worker.terminate();
+  return data.text || '';
+}
+
+async function cloudOcr(imageBlob, apiKey) {
+  const form = new FormData();
+  form.append('apikey', apiKey);
+  form.append('language', 'eng');
+  form.append('OCREngine', '2');
+  form.append('scale', 'true');
+  form.append('detectOrientation', 'true');
+  form.append('file', imageBlob, 'boleta.jpg');
+  const res = await withTimeout(fetch('https://api.ocr.space/parse/image', { method: 'POST', body: form }), 90000, 'cloud');
+  if (!res.ok) throw new Error('http' + res.status);
+  const j = await res.json();
+  if (j.IsErroredOnProcessing) throw new Error('ocrapi: ' + ((j.ErrorMessage && j.ErrorMessage[0]) || 'error'));
+  const pr = (j.ParsedResults && j.ParsedResults[0]) || {};
+  return pr.ParsedText || '';
+}
+
 async function scanReceipt(file) {
   const box = document.getElementById('scanBox');
   const img = document.getElementById('scanImg');
@@ -276,23 +304,23 @@ async function scanReceipt(file) {
   msg.textContent = 'Preparando imagen…';
 
   try {
-    if (typeof Tesseract === 'undefined') throw new Error('no-lib');
     const small = await downscaleImage(file, 2200);
-    msg.textContent = 'Cargando lector…';
-    const worker = await withTimeout(Tesseract.createWorker('eng', Tesseract.OEM.LSTM, {
-      logger: m => {
+    const ocrKey = (state.ocrKey || '').trim();
+    let ocrText = '';
+    if (ocrKey) {
+      msg.textContent = 'Leyendo en la nube…';
+      bar.style.width = '40%';
+      ocrText = await cloudOcr(small, ocrKey);
+    } else {
+      if (typeof Tesseract === 'undefined') throw new Error('no-lib');
+      msg.textContent = 'Cargando lector…';
+      ocrText = await localOcr(small, m => {
         if (SCAN_STATUS_MSG[m.status]) msg.textContent = SCAN_STATUS_MSG[m.status] + ' (la foto no sale de tu teléfono)';
         if (m.status === 'recognizing text') bar.style.width = Math.max(5, Math.round(m.progress * 100)) + '%';
         else bar.style.width = '8%';
-      },
-      workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
-      corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js',
-      langPath: 'https://tessdata.projectnaptha.com/4.0.0'
-    }), 90000, 'load');
-    const { data } = await withTimeout(worker.recognize(small), 120000, 'ocr');
-    await worker.terminate();
+      });
+    }
     bar.style.width = '100%';
-    const ocrText = data.text || '';
     const dbg = document.getElementById('ocrDebug');
     const dbgPre = document.getElementById('ocrText');
     if (dbg && dbgPre) { dbg.style.display = 'block'; dbgPre.textContent = ocrText.trim() || '(no se detectó texto)'; }
@@ -308,9 +336,13 @@ async function scanReceipt(file) {
     const why = String((e && e.message) || '');
     msg.textContent = why.indexOf('no-lib') === 0
       ? 'No se pudo cargar el lector. Revisa tu conexión e inténtalo de nuevo.'
-      : why.indexOf('timeout') === 0
-        ? 'Tardó demasiado (mala conexión o foto muy pesada). Prueba de nuevo o ingresa los datos a mano.'
-        : 'No se pudo leer la boleta. Ingresa los datos a mano.';
+      : why.indexOf('timeout:cloud') === 0
+        ? 'El servicio en la nube no respondió. Revisa tu clave en Ajustes o intenta de nuevo.'
+        : why.indexOf('ocrapi:') === 0 || why.indexOf('http') === 0
+          ? 'El servicio en la nube falló (¿clave válida?). Revisa tu clave en Ajustes.'
+          : why.indexOf('timeout') === 0
+            ? 'Tardó demasiado (mala conexión o foto muy pesada). Prueba de nuevo o ingresa los datos a mano.'
+            : 'No se pudo leer la boleta. Ingresa los datos a mano.';
   }
   setTimeout(() => { prog.style.display = 'none'; }, 800);
 }
@@ -367,7 +399,7 @@ function parseReceipt(text) {
 
   // Comercio: primeras líneas, solo si parece un nombre real de tienda
   // (hasta 3 palabras, cada una Title o MAYÚSCULAS). Si no está claro, no se rellena.
-  const skipRe = /http|www\.|\.com|survey|feedback|thank you|gracias|welcome/i;
+  const skipRe = /http|www\.|\.com|survey|feedback|thank you|gracias|welcome|^(tax|subtotal|total|change|tender|cash)\b/i;
   const nameRe = /^([A-Z][a-z]*|[A-Z]{2,})( ([A-Z][a-z]*|[A-Z]{2,})){0,2}$/;
   for (const l of lines.slice(0, 6)) {
     if (skipRe.test(l)) continue;
@@ -420,6 +452,15 @@ function renderHistory() {
 function renderSettings() {
   const el = document.getElementById('set');
   el.innerHTML =
+    '<div class="card"><h2>Lector de boletas</h2>' +
+    '<div class="hint" style="margin-top:0">El lector en la nube lee mucho mejor. ' +
+    'Consigue tu clave gratis en <a href="https://ocr.space/ocrapi" target="_blank" rel="noopener">ocr.space/ocrapi</a> ' +
+    '(toma 1 minuto, solo piden tu email) y pégala aquí. Sin clave se usa el lector del teléfono.</div>' +
+    '<label>Clave de OCR.space</label>' +
+    '<input id="sOcrKey" type="text" placeholder="Pega tu clave aquí" value="' + esc(state.ocrKey || '') + '" autocomplete="off">' +
+    '<button class="btn" id="sSaveOcr">Guardar clave</button>' +
+    '<div class="hint" id="ocrState"></div></div>' +
+
     '<div class="card"><h2>Tope mensual</h2>' +
     '<label>Tope de gasto mensual (USD)</label>' +
     '<input id="sCap" type="number" inputmode="decimal" step="10" min="0" value="' + esc(state.cap) + '">' +
@@ -445,6 +486,18 @@ function renderSettings() {
     if (!(v > 0)) { alert('Ingresa un tope válido.'); return; }
     state.cap = Math.round(v * 100) / 100; save(); renderAll();
     alert('Tope actualizado a ' + fmt(state.cap) + '.');
+  };
+  const ocrState = document.getElementById('ocrState');
+  const paintOcrState = () => {
+    ocrState.innerHTML = (state.ocrKey || '').trim()
+      ? '☁️ <b>Lector en la nube activado.</b>'
+      : '📱 Sin clave: se usa el lector del teléfono.';
+  };
+  paintOcrState();
+  document.getElementById('sSaveOcr').onclick = () => {
+    state.ocrKey = document.getElementById('sOcrKey').value.trim();
+    save(); paintOcrState();
+    alert(state.ocrKey ? 'Clave guardada. El escáner ahora usa la nube.' : 'Clave eliminada. Se usará el lector del teléfono.');
   };
   document.getElementById('sAddCat').onclick = () => {
     const v = document.getElementById('sNewCat').value.trim();
