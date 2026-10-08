@@ -140,7 +140,7 @@ function renderForm() {
     '<div class="card"><h2>' + (editId ? 'Editar gasto' : 'Nuevo gasto') + '</h2>' +
     (editId ? '' :
       '<button class="btn ghost" id="fScan" style="margin-top:0">📷 Escanear boleta</button>' +
-      '<input id="fFile" type="file" accept="image/*" capture="environment" style="display:none">' +
+      '<input id="fFile" type="file" accept="image/*" style="display:none">' +
       '<div id="scanBox" style="display:none;margin-top:10px">' +
       '<img id="scanImg" style="width:100%;border-radius:10px;display:none">' +
       '<div class="progress" id="scanProg" style="display:none"><div style="width:0%"></div></div>' +
