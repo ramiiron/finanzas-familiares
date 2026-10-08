@@ -2,9 +2,12 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
+const APP_VERSION = '1.4';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#0e9f6e', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#6b7280'];
+const CAT_ICONS = { 'Comida': '🍽️', 'Transporte': '🚗', 'Casa': '🏠', 'Salud': '💊', 'Suscripciones': '🔁', 'Compras': '🛍️', 'Niños': '🧒', 'Otros': '📦' };
 const PEOPLE = ['Ramiro', 'Nicole'];
+const PEOPLE_COLORS = { 'Ramiro': '#0e9f6e', 'Nicole': '#8b5cf6' };
 
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
@@ -53,6 +56,7 @@ function catColor(cat) {
   const i = state.cats.indexOf(cat);
   return CAT_COLORS[(i < 0 ? 7 : i) % CAT_COLORS.length];
 }
+function catIcon(cat) { return CAT_ICONS[cat] || '📦'; }
 
 // ---------- Dashboard ----------
 function monthTxs() {
@@ -65,16 +69,22 @@ function renderDashboard() {
   const pct = cap > 0 ? Math.min(100, (total / cap) * 100) : 0;
   const left = cap - total;
 
-  let cls = '', status = '', statusCls = 'status-ok';
-  if (total > cap) { cls = 'over'; status = 'Te pasaste por ' + fmt(total - cap); statusCls = 'status-over'; }
-  else if (cap > 0 && total / cap >= 0.8) { cls = 'warn'; status = 'Cuidado: queda poco del tope'; statusCls = 'status-warn'; }
-  else { status = left >= 0 ? 'Te quedan ' + fmt(left) + ' este mes' : ''; }
+  let ringColor = '#0e9f6e', pill = 'ok', status = '';
+  if (total > cap) { ringColor = '#e02424'; pill = 'over'; status = 'Te pasaste por ' + fmt(total - cap); }
+  else if (cap > 0 && total / cap >= 0.8) { ringColor = '#d97706'; pill = 'warn'; status = 'Quedan ' + fmt(left) + ' · cuidado'; }
+  else { status = 'Te quedan ' + fmt(left) + ' este mes'; }
 
-  let html = '<div class="card"><h2>' + esc(monthLabel(viewMonth)) + '</h2>' +
-    '<div class="big">' + fmt(total) + ' <small>/ ' + fmt(cap) + '</small></div>' +
-    '<div class="progress ' + cls + '"><div style="width:' + pct.toFixed(1) + '%"></div></div>' +
-    '<div class="' + statusCls + '">' + esc(status) + '</div>' +
-    '<div class="capline">' + txs.length + ' gastos registrados</div></div>';
+  const R = 54, CIRC = 2 * Math.PI * R;
+  let html = '<div class="hero"><div class="hero-top"><div>' +
+    '<div class="hero-label">' + esc(monthLabel(viewMonth)) + '</div>' +
+    '<div class="hero-amount">' + fmt(total) + '</div>' +
+    '<div class="hero-cap">de ' + fmt(cap) + ' · ' + txs.length + ' gastos</div></div>' +
+    '<div class="ring-wrap"><svg viewBox="0 0 120 120" class="ring">' +
+    '<circle cx="60" cy="60" r="' + R + '" class="ring-bg"/>' +
+    '<circle cx="60" cy="60" r="' + R + '" class="ring-fg" style="stroke:' + ringColor +
+    ';stroke-dasharray:' + CIRC.toFixed(1) + ';stroke-dashoffset:' + (CIRC * (1 - pct / 100)).toFixed(1) + '"/>' +
+    '</svg><div class="ring-pct">' + Math.round(pct) + '%</div></div></div>' +
+    '<div><span class="statuspill ' + pill + '">' + esc(status) + '</span></div></div>';
 
   // Por categoría
   const byCat = {};
@@ -84,8 +94,9 @@ function renderDashboard() {
   if (!cats.length) html += '<div class="empty">Sin gastos este mes.</div>';
   const maxCat = cats.length ? cats[0][1] : 1;
   cats.forEach(([c, v]) => {
-    html += '<div class="catrow"><div class="cname">' + esc(c) + '</div>' +
-      '<div class="cbar"><div style="width:' + (v / maxCat * 100).toFixed(1) + '%;background:' + catColor(c) + '"></div></div>' +
+    html += '<div class="catrow"><div class="cico">' + catIcon(c) + '</div>' +
+      '<div class="cinfo"><div class="cname">' + esc(c) + '</div>' +
+      '<div class="cbar"><div style="width:' + (v / maxCat * 100).toFixed(1) + '%;background:' + catColor(c) + '"></div></div></div>' +
       '<div class="camt">' + fmt(v) + '</div></div>';
   });
   html += '</div>';
@@ -95,7 +106,9 @@ function renderDashboard() {
   txs.forEach(t => { if (byP[t.person] == null) byP[t.person] = 0; byP[t.person] += Number(t.amount || 0); });
   html += '<div class="card"><h2>Por persona</h2><div class="personrow">';
   PEOPLE.forEach(p => {
-    html += '<div class="person"><div class="pname">' + esc(p) + '</div><div class="pamt">' + fmt(byP[p] || 0) + '</div></div>';
+    const col = PEOPLE_COLORS[p] || '#0e9f6e';
+    html += '<div class="person"><div class="avatar" style="background:' + col + '">' + esc(p[0]) + '</div>' +
+      '<div class="pname">' + esc(p) + '</div><div class="pamt">' + fmt(byP[p] || 0) + '</div></div>';
   });
   html += '</div></div>';
 
@@ -116,7 +129,7 @@ function renderDashboard() {
 }
 
 function txRow(t) {
-  return '<div class="tx"><div class="dot" style="background:' + catColor(t.cat) + '"></div>' +
+  return '<div class="tx"><div class="cico" style="width:38px;height:38px;font-size:17px">' + catIcon(t.cat) + '</div>' +
     '<div class="tinfo"><div class="tnote">' + esc(t.note || t.cat) + '</div>' +
     '<div class="tmeta">' + esc(t.date || '') + ' · ' + esc(t.cat || '') + ' · ' + esc(t.person || '') + '</div></div>' +
     '<div class="tamt">' + fmt(t.amount) + '</div>' +
@@ -351,7 +364,7 @@ function renderSettings() {
 
     '<div class="card"><h2>Categorías</h2><div id="catList">' +
     state.cats.map((c, i) =>
-      '<div class="tx"><div class="dot" style="background:' + catColor(c) + '"></div>' +
+      '<div class="tx"><div class="cico" style="width:38px;height:38px;font-size:17px">' + catIcon(c) + '</div>' +
       '<div class="tinfo"><div class="tnote">' + esc(c) + '</div></div>' +
       (state.cats.length > 1 ? '<button class="tdel" data-cat="' + i + '" aria-label="Eliminar categoría">×</button>' : '') +
       '</div>').join('') +
@@ -361,7 +374,8 @@ function renderSettings() {
     '<div class="card"><h2>Respaldo</h2>' +
     '<button class="btn ghost" id="sExport">Exportar datos (JSON)</button>' +
     '<button class="btn danger" id="sWipe" style="margin-top:10px">Borrar todos los datos</button>' +
-    '<div class="hint">Tus datos viven en este dispositivo. Exporta un respaldo de vez en cuando.</div></div>';
+    '<div class="hint">Tus datos viven en este dispositivo. Exporta un respaldo de vez en cuando.</div></div>' +
+    '<div class="ver">Finanzas Familiares · v' + APP_VERSION + '</div>';
 
   document.getElementById('sSaveCap').onclick = () => {
     const v = parseFloat(document.getElementById('sCap').value);
