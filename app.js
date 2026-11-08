@@ -2,7 +2,7 @@
 /* Finanzas Familiares — PWA de control de gastos con tope mensual. Datos en localStorage. */
 
 const LS_KEY = 'finanzas-familiares-v1';
-const APP_VERSION = '3.6';
+const APP_VERSION = '3.7';
 const DEFAULT_CATS = ['Comida', 'Transporte', 'Casa', 'Salud', 'Suscripciones', 'Compras', 'Niños', 'Otros'];
 const CAT_COLORS = ['#34d399', '#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#2dd4bf', '#f472b6', '#9ca3af'];
 const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">';
@@ -74,17 +74,64 @@ async function removeCatAt(i) {
   else persistLocal();
 }
 
-async function initCloud() {
+// ---------- Acceso con correo y contraseña (compuerta) ----------
+// Sin una sesión de correo válida la app queda bloqueada en la pantalla de
+// ingreso. La sesión anónima heredada NO sirve: se cierra al detectarla.
+let authUser = null, cloudStarted = false;
+
+function loginMsg(txt, ok) {
+  const e = document.getElementById('login-error');
+  if (!e) return;
+  e.textContent = txt;
+  e.style.display = 'block';
+  e.classList.toggle('login-ok', !!ok);
+}
+
+function initAuth(esperado) {
   try {
     if (!FIREBASE_CONFIG || !FIREBASE_CONFIG.apiKey) return;
-    if (typeof firebase === 'undefined') return;
-    if (firebase.apps && firebase.apps.length) { db = firebase.firestore(); }
-    else {
-      firebase.initializeApp(FIREBASE_CONFIG);
-      await firebase.auth().signInAnonymously();
-      db = firebase.firestore();
-      try { await db.enablePersistence({ synchronizeTabs: true }); } catch (e) {}
+    if (typeof firebase === 'undefined') {
+      // El SDK puede tardar en cargar (red lenta): reintenta unos segundos
+      // antes de declarar que no hay conexión.
+      esperado = esperado || 0;
+      if (esperado < 5000) { setTimeout(() => initAuth(esperado + 500), 500); return; }
+      loginMsg('Sin conexión para verificar tu sesión. Revisa internet y vuelve a abrir la app.');
+      return;
     }
+    if (!(firebase.apps && firebase.apps.length)) firebase.initializeApp(FIREBASE_CONFIG);
+    firebase.auth().onAuthStateChanged(user => {
+      if (!user || user.isAnonymous) {
+        if (user) firebase.auth().signOut().catch(() => {});
+        authUser = null;
+        document.body.classList.remove('unlocked');
+        return;
+      }
+      authUser = user;
+      document.body.classList.add('unlocked');
+      startCloud();
+      if (currentView === 'set') renderSettings();
+    });
+  } catch (e) {
+    cloudErr = (e && e.message) ? String(e.message).slice(0, 140) : 'error desconocido';
+  }
+}
+
+function intentarLogin() {
+  const email = (document.getElementById('login-email').value || '').trim();
+  const pass = document.getElementById('login-pass').value;
+  if (!email || !pass) { loginMsg('Escribe tu correo y tu contraseña.'); return; }
+  firebase.auth().signInWithEmailAndPassword(email, pass).catch(err => {
+    if (err && err.code === 'auth/too-many-requests') loginMsg('Demasiados intentos seguidos. Espera unos minutos e inténtalo de nuevo.');
+    else loginMsg('No pudimos ingresar: revisa el correo y la contraseña.');
+  });
+}
+
+async function startCloud() {
+  if (cloudStarted) return;
+  cloudStarted = true;
+  try {
+    db = firebase.firestore();
+    try { await db.enablePersistence({ synchronizeTabs: true }); } catch (e) {}
     cloudOn = true;
     await migrateLocalToCloud();
     if (currentView === 'set') renderSettings();
@@ -576,7 +623,12 @@ function renderSettings() {
       : '📱 <b>Modo local.</b> Los datos viven solo en este teléfono.') +
     ((!cloudOn && cloudErr && FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey)
       ? '<br><span style="color:var(--red)">No se pudo conectar: ' + esc(cloudErr) + '</span>' : '') +
-    '</div></div>' +
+    '</div>' +
+    (authUser
+      ? '<div class="hint">Sesión iniciada como <b>' + esc(authUser.email || '') + '</b></div>' +
+        '<button class="btn ghost" id="sSignOut">Cerrar sesión</button>'
+      : '') +
+    '</div>' +
 
     '<div class="card"><h2>Lector de boletas</h2>' +
     '<div class="hint" style="margin-top:0">El lector en la nube lee mucho mejor. ' +
@@ -608,6 +660,11 @@ function renderSettings() {
     '<div class="hint">Tus datos viven en este dispositivo. Exporta un respaldo de vez en cuando.</div></div>' +
     '<div class="ver">Finanzas Familiares · v' + APP_VERSION + '</div>';
 
+  const sSignOutBtn = document.getElementById('sSignOut');
+  if (sSignOutBtn) sSignOutBtn.onclick = () => {
+    try { firebase.auth().signOut().then(() => location.reload()).catch(() => location.reload()); }
+    catch (e) { location.reload(); }
+  };
   document.getElementById('sSaveCap').onclick = () => {
     const v = parseFloat(document.getElementById('sCap').value);
     if (!(v > 0)) { alert('Ingresa un tope válido.'); return; }
@@ -704,12 +761,24 @@ if ('serviceWorker' in navigator) {
 
 renderForm();
 showView('dash');
-initCloud();
+// ---------- Botones de la pantalla de ingreso ----------
+document.getElementById('btn-login').addEventListener('click', intentarLogin);
+document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') intentarLogin(); });
+document.getElementById('login-olvide').addEventListener('click', () => {
+  const email = (document.getElementById('login-email').value || '').trim();
+  if (!email) { loginMsg('Escribe primero tu correo y después toca «Olvidé mi contraseña».'); return; }
+  firebase.auth().sendPasswordResetEmail(email).then(() => {
+    loginMsg('Te enviamos un correo para crear una contraseña nueva. Revisa la bandeja de ' + email + '.', true);
+  }).catch(() => { loginMsg('No pudimos enviar el correo. Revisa que la dirección esté bien escrita.'); });
+});
+
+initAuth();
 checkForUpdate();
 if (!window.__updWatch) window.__updWatch = setInterval(checkForUpdate, 60000);
 
 // ---------- Actualización visible con un toque ----------
 async function checkForUpdate() {
+  if (!authUser) return;
   try {
     const r = await fetch('./version.json', { cache: 'no-store' });
     if (!r.ok) return;
